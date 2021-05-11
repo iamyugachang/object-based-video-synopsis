@@ -1,9 +1,14 @@
 import numpy as np
 import cv2 
 import os
+import ntpath
 
+def path_leaf(path):
+    head, tail = ntpath.split(path)
+    return tail or ntpath.basename(head)
 
 def bg_extr(video_path, result_path):
+    # print(os.path.join(result_path, path_leaf(video_path).split('.')[-2]+'-background.jpg'))
     cap = cv2.VideoCapture(video_path)
     ret, frame = cap.read()
     cnt = 0
@@ -20,6 +25,8 @@ def bg_extr(video_path, result_path):
 
     background /= cnt
     background *= 255
-    cv2.imwrite(os.path.join(result_path, 'background.jpg'),background)
+    output_path = os.path.join(result_path, path_leaf(video_path).split('.')[-2]+'-bg.jpg')
+    cv2.imwrite(output_path,background)
     cap.release()
     cv2.destroyAllWindows()
+    return output_path

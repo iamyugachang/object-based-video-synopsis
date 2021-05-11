@@ -1,3 +1,6 @@
+#ignore warning
+import warnings  
+warnings.filterwarnings("ignore")  
 import os
 # comment out below line to enable tensorflow logging outputs
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
