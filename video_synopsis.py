@@ -27,20 +27,9 @@ from deep_sort.detection import Detection
 from deep_sort.tracker import Tracker
 from tools import generate_detections as gdet
 import json
-# flags.DEFINE_string('framework', 'tf', '(tf, tflite, trt')
-# flags.DEFINE_string('weights', './checkpoints/yolov4-416',
-#                     'path to weights file')
-# flags.DEFINE_integer('size', 416, 'resize images to')
+
 flags.DEFINE_boolean('tiny', False, 'yolo or yolo-tiny')
 flags.DEFINE_string('model', 'yolov4', 'yolov3 or yolov4')
-# # flags.DEFINE_string('video', './data/video/test.mp4', 'path to input video or set to 0 for webcam')
-# flags.DEFINE_string('output', None, 'path to output video')
-# flags.DEFINE_string('output_format', 'XVID', 'codec used in VideoWriter when saving video to file')
-# flags.DEFINE_float('iou', 0.45, 'iou threshold')
-# flags.DEFINE_float('score', 0.50, 'score threshold')
-# flags.DEFINE_boolean('dont_show', False, 'dont show video output')
-# flags.DEFINE_boolean('info', False, 'show detailed info of tracked objects')
-# flags.DEFINE_boolean('count', False, 'count objects being tracked on screen')
 
 
 class VideoSynopsis():
@@ -68,6 +57,8 @@ class VideoSynopsis():
         nms_max_overlap = 1.0
         frame_dict_bin = {} #ex: frame_dict =  {track_id: [frame1, frame2, ...]}
         frame_dict_rgb = {}
+        position_dict = {} #ex: position_dict = {track_id: [bbox1, bbox2, bbo3...]}
+        enter_time_dict = {} #ex: enter_time_dict = {track_id: time}
 
         
         # initialize deep sort
@@ -106,6 +97,8 @@ class VideoSynopsis():
             vid = cv2.VideoCapture(int(video_path))
         except:
             vid = cv2.VideoCapture(video_path)
+
+        original_fps = vid.get(cv2.CAP_PROP_FPS)
 
         #capture background
         back = cv2.imread(self.bg_path)
@@ -247,15 +240,23 @@ class VideoSynopsis():
                 canvas = np.zeros(frame_original.shape,dtype=np.uint8)
                 canvas[int(bbox[1]):int(bbox[3]), int(bbox[0]):int(bbox[2])] = 255
                 
-                if track.track_id in frame_dict_bin:
-                    frame_dict_bin[track.track_id].append(canvas & new_frame)
+                bin_cropped_frame = canvas & new_frame
+                rgb_cropped_frame = canvas & new_frame_rgb
+                if track.track_id not in enter_time_dict:
+                    enter_time_dict[track.track_id] = round(frame_num/original_fps, 2)
+                if track.track_id in position_dict:
+                    position_dict[track.track_id].append(bbox)
                 else:
-                    frame_dict_bin[track.track_id] = [canvas & new_frame]
+                    position_dict[track.track_id] = [bbox]
+                if track.track_id in frame_dict_bin:
+                    frame_dict_bin[track.track_id].append(bin_cropped_frame)
+                else:
+                    frame_dict_bin[track.track_id] = [bin_cropped_frame]
 
                 if track.track_id in frame_dict_rgb:
-                    frame_dict_rgb[track.track_id].append(canvas & new_frame_rgb)
+                    frame_dict_rgb[track.track_id].append(rgb_cropped_frame)
                 else:
-                    frame_dict_rgb[track.track_id] = [canvas & new_frame_rgb]
+                    frame_dict_rgb[track.track_id] = [rgb_cropped_frame]
                 
             # if enable info flag then print details about each track
                 if self.info:
@@ -297,12 +298,15 @@ class VideoSynopsis():
             for id in frame_dict_rgb:
                 if len(frame_dict_rgb[id])!=0:
                     base_rgb = cv2.add(base_rgb, frame_dict_rgb[id].pop(0))
+                    bbox = position_dict[id].pop(0)
+                    cv2.putText(base_rgb, str(enter_time_dict[id])+" (s)",(int(bbox[0]), int(bbox[1]+70)),0, 0.75, (255,255,255),2)
                 else:
                     count_zero+=1
             
             base_bin_inv = cv2.bitwise_not(base_bin)
             a = cv2.bitwise_and(base_bin_inv, back)
             res = cv2.add(a, base_rgb)
+            
 
             cv2.imwrite('result/'+str(count)+'.jpg', res)
             out.write(res)
