@@ -14,22 +14,23 @@ import cv2
 
 #flags definition
 flags.DEFINE_string('video', './data/video/video_synopsis_test3.mp4', 'path to input video or set to 0 for webcam')
-flags.DEFINE_string('output', './outputs/output_synopsis.avi', 'path to output video')
+flags.DEFINE_string('output', './outputs/', 'path to output video')
 flags.DEFINE_string('output_format', 'XVID', 'codec used in VideoWriter when saving video to file')
+flags.DEFINE_bool('frame_cut',True, 'frame cut or not') #./outputs/frame_cut/...
 
 
 
 def main(_argv):
     #background extraction
     print('Start background extraction') 
-    bg_path = bge.bg_extr(FLAGS.video, './')
+    bg_path, file_name = bge.bg_extr(FLAGS.video, './')
     print('background image:', bg_path)
 
     print('------------------------------------------')
     
     #tracking and merging
     print('Start detecting video synopsis')
-    task1 = vs.VideoSynopsis(FLAGS.video,FLAGS.output, bg_path)
+    task1 = vs.VideoSynopsis(FLAGS.video,FLAGS.output, bg_path, file_name)
     task1.run()
     return
 

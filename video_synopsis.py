@@ -27,13 +27,14 @@ from deep_sort.detection import Detection
 from deep_sort.tracker import Tracker
 from tools import generate_detections as gdet
 import json
+import shutil
 
 flags.DEFINE_boolean('tiny', False, 'yolo or yolo-tiny')
 flags.DEFINE_string('model', 'yolov4', 'yolov3 or yolov4')
 
 
 class VideoSynopsis():
-    def __init__(self, input_path, output_path, bg_path) -> None:
+    def __init__(self, input_path, output_path, bg_path, file_name) -> None:
         self.framework = 'tf'
         self.weights = './checkpoints/yolov4-416'
         self.size = 416
@@ -48,6 +49,7 @@ class VideoSynopsis():
         self.info = False
         self.count = False
         self.bg_path = bg_path
+        self.file_name = file_name
         
     
     def run(self):
@@ -59,6 +61,16 @@ class VideoSynopsis():
         frame_dict_rgb = {}
         position_dict = {} #ex: position_dict = {track_id: [bbox1, bbox2, bbo3...]}
         enter_time_dict = {} #ex: enter_time_dict = {track_id: time}
+        
+        #create folder for frame_cut
+        if FLAGS.frame_cut:
+            self.path_frame_cut = os.path.join(self.output, 'frame_cut', self.file_name)
+            if os.path.exists(self.path_frame_cut):
+                shutil.rmtree(self.path_frame_cut, ignore_errors=True)
+                os.mkdir(self.path_frame_cut)
+            else:
+                os.mkdir(self.path_frame_cut)
+            
 
         
         # initialize deep sort
@@ -285,7 +297,7 @@ class VideoSynopsis():
             height = int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT))
             fps = int(vid.get(cv2.CAP_PROP_FPS))
             codec = cv2.VideoWriter_fourcc(*self.output_format)
-            out = cv2.VideoWriter(self.output, codec, fps, (width, height))
+            out = cv2.VideoWriter(os.path.join(self.output, self.file_name+'_synopsis.avi'), codec, fps, (width, height))
         count = 0
         print('Start outputting synopsis video')
         while True:
@@ -307,8 +319,8 @@ class VideoSynopsis():
             a = cv2.bitwise_and(base_bin_inv, back)
             res = cv2.add(a, base_rgb)
             
-
-            cv2.imwrite('result/'+str(count)+'.jpg', res)
+            if FLAGS.frame_cut:
+                cv2.imwrite(os.path.join(self.path_frame_cut, str(count)+'.jpg'), res)
             out.write(res)
             count+=1
             if count_zero >= len(frame_dict_rgb):

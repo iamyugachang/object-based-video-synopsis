@@ -8,7 +8,6 @@ def path_leaf(path):
     return tail or ntpath.basename(head)
 
 def bg_extr(video_path, result_path):
-    # print(os.path.join(result_path, path_leaf(video_path).split('.')[-2]+'-background.jpg'))
     cap = cv2.VideoCapture(video_path)
     ret, frame = cap.read()
     cnt = 0
@@ -29,4 +28,4 @@ def bg_extr(video_path, result_path):
     cv2.imwrite(output_path,background)
     cap.release()
     cv2.destroyAllWindows()
-    return output_path
+    return output_path, path_leaf(video_path).split('.')[-2]
