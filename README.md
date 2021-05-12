@@ -9,7 +9,7 @@ python main.py --video /path/to/input/video --output /path/to/output --frame_cut
 ```
 
 # Demo
-![alt text](https://github.com/iamyugachang/object-based-video-synopsis/master/demo/demo.gif)
+![alt text](https://github.com/iamyugachang/object-based-video-synopsis/blob/master/demo/demo.gif)
 
 # Default file structure
 input videos in `./data/videos/`,
