@@ -32,6 +32,7 @@ def main(_argv):
     print('Start detecting video synopsis')
     task1 = vs.VideoSynopsis(FLAGS.video,FLAGS.output, bg_path, file_name)
     task1.run()
+    # task1.record_trajectory()
     return
 
 
