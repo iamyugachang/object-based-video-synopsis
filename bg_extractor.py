@@ -8,6 +8,7 @@ def path_leaf(path):
     return tail or ntpath.basename(head)
 
 def bg_extr(video_path, result_path):
+    #print(video_path)
     cap = cv2.VideoCapture(video_path)
     ret, frame = cap.read()
     cnt = 0

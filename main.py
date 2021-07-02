@@ -13,7 +13,7 @@ import cv2
 
 
 #flags definition
-flags.DEFINE_string('video', './data/video/video_synopsis_test3.mp4', 'path to input video or set to 0 for webcam')
+flags.DEFINE_string('video', './data/video/test.mp4', 'path to input video or set to 0 for webcam')
 flags.DEFINE_string('output', './outputs/', 'path to output video')
 flags.DEFINE_string('output_format', 'XVID', 'codec used in VideoWriter when saving video to file')
 flags.DEFINE_bool('frame_cut',True, 'frame cut or not') #./outputs/frame_cut/...
