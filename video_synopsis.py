@@ -8,6 +8,7 @@ import time
 import tensorflow as tf
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 tf.config.set_visible_devices(physical_devices[0:1], 'GPU')
+# print(physical_devices)
 if len(physical_devices) > 0:
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
 from absl import app, flags, logging
@@ -29,6 +30,7 @@ from deep_sort.tracker import Tracker
 from tools import generate_detections as gdet
 import json
 import shutil
+from tqdm import tqdm
 
 flags.DEFINE_boolean('tiny', False, 'yolo or yolo-tiny')
 flags.DEFINE_string('model', 'yolov4', 'yolov3 or yolov4')
@@ -112,18 +114,20 @@ class VideoSynopsis():
             vid = cv2.VideoCapture(video_path)
 
         original_fps = vid.get(cv2.CAP_PROP_FPS)
+        length = int(vid.get(cv2.CAP_PROP_FRAME_COUNT))
 
         #capture background
         back = cv2.imread(self.bg_path)
         back_gray = cv2.cvtColor(back, cv2.COLOR_BGR2GRAY)
         back_blur = cv2.GaussianBlur(back_gray, (21, 21), 0)
 
-        frame_num = 0
         backSub = cv2.createBackgroundSubtractorMOG2()
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
         # while video is running
         print('Start detecting videos!')
-        while True:
+        
+        # while True:
+        for frame_num in tqdm(range(length)):
             return_value, frame = vid.read()
             
             if return_value:
@@ -133,7 +137,7 @@ class VideoSynopsis():
             else:
                 print('Finished!')
                 break
-            frame_num +=1
+            
             # print('Frame #: ', frame_num)
             frame_size = frame.shape[:2]
             image_data = cv2.resize(frame, (input_size, input_size))
@@ -238,7 +242,7 @@ class VideoSynopsis():
             gray_blur = cv2.GaussianBlur(frame_gray, (21, 21), 0)
             difference = cv2.absdiff(gray_blur, back_blur)
             thresh = cv2.threshold(difference, 25, 255, cv2.THRESH_BINARY)[1]
-            thresh = cv2.dilate(thresh, None, iterations=15)
+            thresh = cv2.dilate(thresh, None, iterations=10) #original iterations = 15
 
             # background abstraction MOG
             # frame_tmp = cv2.GaussianBlur(frame_original, (21, 21), 0)
@@ -280,15 +284,19 @@ class VideoSynopsis():
                 else:
                     position_dict[track.track_id] = [bbox]
 
-                if track.track_id in frame_dict_bin:
-                    frame_dict_bin[track.track_id].append(bin_cropped_frame)
-                else:
-                    frame_dict_bin[track.track_id] = [bin_cropped_frame]
+                # if track.track_id in frame_dict_bin:
+                #     frame_dict_bin[track.track_id].append(bin_cropped_frame)
+                # else:
+                #     frame_dict_bin[track.track_id] = [bin_cropped_frame]
 
                 if track.track_id in frame_dict_rgb:
                     frame_dict_rgb[track.track_id].append(rgb_cropped_frame)
                 else:
                     frame_dict_rgb[track.track_id] = [rgb_cropped_frame]
+                
+                # Generate mask of objects
+                # ret, tmp = cv2.threshold(rgb_cropped_frame, 10, 255, cv2.THRESH_BINARY)
+                # cv2.imwrite('./outputs/process/'+str(track.track_id)+'_'+str(frame_num)+'.png',tmp)
                 
             # if enable info flag then print details about each track
                 if self.info:
@@ -324,13 +332,21 @@ class VideoSynopsis():
             base_bin = np.zeros(frame_original.shape,dtype=np.uint8)
             base_rgb = np.zeros(frame_original.shape,dtype=np.uint8)
             count_zero = 0
-            for id in frame_dict_bin:
-                if len(frame_dict_bin[id])!=0:
-                    base_bin = cv2.add(base_bin, frame_dict_bin[id].pop(0))
+            # for id in frame_dict_bin:
+            #     if len(frame_dict_bin[id])!=0:
+            #         base_bin = cv2.add(base_bin, frame_dict_bin[id].pop(0))
+
             for id in frame_dict_rgb:
                 if len(frame_dict_rgb[id])!=0:
-                    base_rgb = cv2.add(base_rgb, frame_dict_rgb[id].pop(0))
+                    frame_rgb = frame_dict_rgb[id].pop(0)
                     bbox = position_dict[id].pop(0)
+                    center = (round((int(bbox[0])+int(bbox[2]))/2), round((int(bbox[1])+int(bbox[3]))/2))
+                    if base_rgb[center[0], center[1]] == 0:
+                        base_rgb = cv2.add(base_rgb, frame_rgb)
+                    else:
+                        base_rgb = cv2.addWeighted(base_rgb, 0.5, frame_rgb, 0.5, 0)
+                    ret, frame_bin = cv2.threshold(frame_rgb, 10, 255, cv2.THRESH_BINARY)
+                    base_bin = cv2.add(base_bin, frame_bin)
                     cv2.putText(base_rgb, str(enter_time_dict[id])+" (s)",(int(bbox[0]), int(bbox[1]+70)),0, 0.75, (255,255,255),2)
                 else:
                     count_zero+=1
@@ -424,7 +440,8 @@ class VideoSynopsis():
         #ex: frame_data = [ {id1:pos1, id2:pos2...},...,...]
         # while video is running
         print('Start detecting videos!')
-        while True:
+        # while True:
+        for c in tqdm(range(original_fps)):
             return_value, frame = vid.read()
             
             if return_value:
