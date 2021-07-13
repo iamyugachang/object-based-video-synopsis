@@ -7,7 +7,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import time
 import tensorflow as tf
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
-tf.config.set_visible_devices(physical_devices[0:1], 'GPU')
+# tf.config.set_visible_devices(physical_devices[0:1], 'GPU')
 # print(physical_devices)
 if len(physical_devices) > 0:
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
@@ -64,6 +64,8 @@ class VideoSynopsis():
         frame_dict_rgb = {}
         position_dict = {} #ex: position_dict = {track_id: [bbox1, bbox2, bbo3...]}
         enter_time_dict = {} #ex: enter_time_dict = {track_id: time}
+        tube_mask_dict = {} #ex: tube_mask_dict = {trak_id:tube}
+        enter_queue = [] #ex: enter_queue = [id1, id2, id3]
         
         #create folder for frame_cut
         if FLAGS.frame_cut:
@@ -127,7 +129,9 @@ class VideoSynopsis():
         print('Start detecting videos!')
         
         # while True:
+        # tmp_count = 0
         for frame_num in tqdm(range(length)):
+        # for frame_num in tqdm(range(100)):
             return_value, frame = vid.read()
             
             if return_value:
@@ -242,7 +246,7 @@ class VideoSynopsis():
             gray_blur = cv2.GaussianBlur(frame_gray, (21, 21), 0)
             difference = cv2.absdiff(gray_blur, back_blur)
             thresh = cv2.threshold(difference, 25, 255, cv2.THRESH_BINARY)[1]
-            thresh = cv2.dilate(thresh, None, iterations=10) #original iterations = 15
+            thresh = cv2.dilate(thresh, None, iterations=15) #original iterations = 15
 
             # background abstraction MOG
             # frame_tmp = cv2.GaussianBlur(frame_original, (21, 21), 0)
@@ -274,8 +278,13 @@ class VideoSynopsis():
                 # canvas = np.zeros(frame_original.shape,dtype=np.uint8)
                 # canvas[new_ymin:new_ymax, new_xmin:new_xmax] = 255
                 
-                bin_cropped_frame = canvas & new_frame
-                rgb_cropped_frame = canvas & new_frame_rgb
+                bin_cropped_frame = cv2.bitwise_and(canvas, new_frame)
+                rgb_cropped_frame = cv2.bitwise_and(canvas, new_frame_rgb)
+                # cv2.imwrite("./outputs/tmp/"+str(tmp_count)+".png",rgb_cropped_frame)
+                # tmp_count+=1
+                if track.track_id not in enter_queue:
+                    enter_queue.append(track.track_id)
+
                 if track.track_id not in enter_time_dict:
                     enter_time_dict[track.track_id] = round(frame_num/original_fps, 2)
 
@@ -293,6 +302,12 @@ class VideoSynopsis():
                     frame_dict_rgb[track.track_id].append(rgb_cropped_frame)
                 else:
                     frame_dict_rgb[track.track_id] = [rgb_cropped_frame]
+
+                _ , tube_mask = cv2.threshold(rgb_cropped_frame, 10, 255, cv2.THRESH_BINARY)
+                if track.track_id in tube_mask_dict:
+                    tube_mask_dict[track.track_id] = cv2.add(tube_mask_dict[track.track_id], tube_mask)
+                else:
+                    tube_mask_dict[track.track_id] = tube_mask
                 
                 # Generate mask of objects
                 # ret, tmp = cv2.threshold(rgb_cropped_frame, 10, 255, cv2.THRESH_BINARY)
@@ -328,23 +343,108 @@ class VideoSynopsis():
             out = cv2.VideoWriter(os.path.join(self.output, self.file_name+'_synopsis.avi'), codec, fps, (width, height))
         count = 0
         print('Start outputting synopsis video')
+        ###UNDER CONSTRUCTION
+        pipeline = [] #pipeline = [ [id1, id2, id3], [id4, id5]....[], [], ....]
+        #Step 1: select candidate tube in FIFO order'
+        for id in tube_mask_dict:
+            cv2.imwrite("./outputs/tube/"+str(id)+".png", tube_mask_dict[id])
+        while True:
+            selected_id = []
+            tmp_queue = []
+            while len(enter_queue) != 0:
+                collision = False
+                current = enter_queue.pop(0)
+                if len(selected_id) == 0:
+                    selected_id = [current]
+                else:
+                    for id in selected_id:
+                        # intensity = cv2.bitwise_and(tube_mask_dict[current], tube_mask_dict[id]).sum()
+                        enter_time_gap = abs(enter_time_dict[current] - enter_time_dict[id])
+                        area_current = np.count_nonzero((tube_mask_dict[current] == [255,255,255]).all(axis=2))
+                        area_compare = np.count_nonzero((tube_mask_dict[id] == [255,255,255]).all(axis=2))
+                        overlap_tmp = cv2.bitwise_and(tube_mask_dict[current], tube_mask_dict[id])
+                        area_overlap = np.count_nonzero((overlap_tmp == [255,255,255]).all(axis=2))
+                        iou = area_overlap / (area_current + area_compare - area_overlap + 0.001) 
+                        if enter_time_gap > 1 and iou > 0.2:
+                            #collision happend
+                            collision = True
+                            # print("overlap, current, compare, iou = ", area_overlap, area_current, area_compare, iou)
+                            break
+                    if collision:
+                        tmp_queue.append(current)
+                    else:
+                        selected_id.append(current)
+                    collision = False
+            enter_queue = tmp_queue.copy()
+            pipeline.append(selected_id)
+            print("selected queue =", selected_id)
+            if len(enter_queue) == 0:
+                break
+        #Step 2: output objects according to the pipeline order
+        for order in pipeline:
+            while True:
+                base_bin = np.zeros(frame_original.shape,dtype=np.uint8)
+                base_rgb = np.zeros(frame_original.shape,dtype=np.uint8)
+                count_zero = 0
+                frame_map = []
+                for id in order:
+                    if len(frame_dict_rgb[id])!=0:
+                        frame_rgb = frame_dict_rgb[id].pop(0)
+                        bbox = position_dict[id].pop(0)
+                        img1 = frame_rgb
+                        img2 = base_rgb
+                        _, img1_mask = cv2.threshold(frame_rgb, 10, 255, cv2.THRESH_BINARY)
+                        _, img2_mask = cv2.threshold(base_rgb, 10, 255, cv2.THRESH_BINARY)
+                        _, overlap_mask = cv2.threshold(cv2.bitwise_and(img1_mask, img2_mask), 10, 255, cv2.THRESH_BINARY)
+                        overlap_mask_inv = cv2.bitwise_not(overlap_mask)
+                        blended_part = cv2.addWeighted(img1 & overlap_mask, 0.5, img2&overlap_mask, 0.5, 0)
+                        base_rgb = ((img1 + img2) & overlap_mask_inv) + blended_part
+                        # base_rgb = cv2.add(base_rgb, frame_rgb) #where cause overlap
+                        # ret, frame_bin = cv2.threshold(frame_rgb, 10, 255, cv2.THRESH_BINARY)
+                        frame_bin = img1_mask
+                        base_bin = cv2.add(base_bin, frame_bin)
+                        cv2.putText(base_rgb, str(enter_time_dict[id])+" (s)",(int(bbox[0]), int(bbox[1]+70)),0, 0.75, (255,255,255),2)
+                    else:
+                        count_zero+=1
+                base_bin_inv = cv2.bitwise_not(base_bin)
+                a = cv2.bitwise_and(base_bin_inv, back)
+                res = cv2.add(a, base_rgb)
+                
+                if FLAGS.frame_cut:
+                    cv2.imwrite(os.path.join(self.path_frame_cut, str(count)+'.jpg'), res)
+                out.write(res)
+                count+=1
+                if count_zero >= len(order):
+                    break
+                if cv2.waitKey(1) & 0xFF == ord('q'): break
+        cv2.destroyAllWindows()
+        out.release()
+        ###UNDER CONSTRUCTION
+        '''
         while True:
             base_bin = np.zeros(frame_original.shape,dtype=np.uint8)
             base_rgb = np.zeros(frame_original.shape,dtype=np.uint8)
             count_zero = 0
+            frame_map = []
             # for id in frame_dict_bin:
             #     if len(frame_dict_bin[id])!=0:
             #         base_bin = cv2.add(base_bin, frame_dict_bin[id].pop(0))
-
+            # for id in frame_dict_rgb:
+            #     cv2.imwrite('./outputs/tube_mask/'+str(count)+'.png', tube_mask_dict[id])
+            #     count+=1
+            # return 
             for id in frame_dict_rgb:
                 if len(frame_dict_rgb[id])!=0:
                     frame_rgb = frame_dict_rgb[id].pop(0)
                     bbox = position_dict[id].pop(0)
-                    center = (round((int(bbox[0])+int(bbox[2]))/2), round((int(bbox[1])+int(bbox[3]))/2))
-                    if base_rgb[center[0], center[1]] == 0:
-                        base_rgb = cv2.add(base_rgb, frame_rgb)
-                    else:
-                        base_rgb = cv2.addWeighted(base_rgb, 0.5, frame_rgb, 0.5, 0)
+                    # bbox = [int(pos) for pos in bbox]
+                    # center = ( int(round((bbox[0]+bbox[2])/2)), int(round((bbox[1]+bbox[3])/2)) ) #(x,y)
+                    
+                    # if base_rgb[ bbox[1]:bbox[3], bbox[0]:bbox[2]].sum() == 0:
+                    #     base_rgb = cv2.add(base_rgb, frame_rgb)
+                    # else:
+                    #     base_rgb = cv2.addWeighted(base_rgb, 0.5, frame_rgb, 0.5, 0)
+                    base_rgb = cv2.add(base_rgb, frame_rgb)
                     ret, frame_bin = cv2.threshold(frame_rgb, 10, 255, cv2.THRESH_BINARY)
                     base_bin = cv2.add(base_bin, frame_bin)
                     cv2.putText(base_rgb, str(enter_time_dict[id])+" (s)",(int(bbox[0]), int(bbox[1]+70)),0, 0.75, (255,255,255),2)
@@ -364,7 +464,7 @@ class VideoSynopsis():
             if cv2.waitKey(1) & 0xFF == ord('q'): break
         cv2.destroyAllWindows()
         out.release()
-
+        '''
             
         print('Finished!')
         return
